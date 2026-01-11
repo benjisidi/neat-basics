@@ -1,0 +1,139 @@
+[NEAT]
+# Use the highest fitness in the population as the criterion
+fitness_criterion     = max
+
+# Stop evolution when a genome reaches this fitness
+# For XOR: 4.0 is perfect (no error), 3.9 is "good enough"
+fitness_threshold     = 3.9
+
+# Number of genomes (organisms) in each generation
+# More = slower but better exploration. 150 is good for simple problems.
+pop_size              = 150
+
+# Don't restart from scratch if all species go extinct
+# (Rarely happens with proper configuration)
+reset_on_extinction   = False
+
+# Stop only when fitness_threshold is reached (not after fixed generations)
+no_fitness_termination = False
+
+[DefaultGenome]
+# Problem-specific: 2 inputs for XOR (A and B)
+num_inputs              = 2
+
+# Problem-specific: 1 output for XOR (A XOR B)
+num_outputs             = 1
+
+# Start with no hidden neurons (networks evolve complexity as needed)
+num_hidden              = 0
+
+# No recurrent connections (feed-forward only)
+# Set to False if you need memory/temporal processing
+feed_forward            = True
+
+# Start with all inputs connected to all outputs.
+# Common options:
+#   unconnected        - no initial connections
+#   full_direct        - all inputs connected to all outputs (and hidden nodes, if any)
+#   partial_direct #   - random subset of full_direct connections (0.0–1.0)
+# Legacy values ``full`` and ``partial`` are accepted for backward compatibility but
+# are deprecated; prefer the explicit variants above.
+initial_connection      = full_direct
+
+# Note: The original NEAT paper emphasizes starting from minimal structure (no hidden nodes
+# and sparse connectivity) and then complexifying over time. NEAT-Python follows this
+# philosophy by treating ``unconnected`` as the canonical "no edges" option (see
+# :ref:`initial-connection-config-label` and :doc:`neat_overview`). In simple examples like XOR
+# we use ``full_direct`` for convenience so networks make progress quickly, while still
+# starting with zero hidden nodes. If you want the sparsest possible starting networks,
+# set ``initial_connection = unconnected`` instead.
+
+# Activation function for neurons
+# sigmoid: outputs in range (0, 1) - good for most problems
+# tanh: outputs in range (-1, 1)
+# relu: outputs in range [0, ∞)
+activation_default      = sigmoid
+
+# Probability of changing a neuron's activation function
+# 0.0 = never change (recommended to start)
+activation_mutate_rate  = 0.0
+
+# Available activation functions for mutation
+# If mutate_rate > 0, neurons can change to these functions
+activation_options      = sigmoid
+
+# How to combine multiple inputs to a neuron
+# sum: add all inputs (standard for neural networks)
+aggregation_default     = sum
+aggregation_mutate_rate = 0.0
+aggregation_options     = sum
+
+# Neuron bias (like intercept in y = mx + b)
+# Controls the neuron's firing threshold
+bias_init_mean          = 0.0      # Average starting bias
+bias_init_stdev         = 1.0      # Variation in starting bias
+bias_init_type          = gaussian # Random distribution to use
+bias_max_value          = 30.0     # Maximum allowed bias
+bias_min_value          = -30.0    # Minimum allowed bias
+bias_mutate_power       = 0.5      # How much to change when mutating
+bias_mutate_rate        = 0.7      # Probability of mutating bias
+bias_replace_rate       = 0.1      # Probability of completely replacing bias
+
+# How to measure genetic distance between genomes
+# Used for grouping into species
+compatibility_disjoint_coefficient = 1.0  # Weight for non-matching genes
+compatibility_weight_coefficient   = 0.5  # Weight for weight differences
+
+# Structural mutation probabilities (per genome, per generation)
+conn_add_prob           = 0.5      # Add a new connection
+conn_delete_prob        = 0.5      # Remove a connection
+node_add_prob           = 0.2      # Add a new hidden neuron
+node_delete_prob        = 0.2      # Remove a hidden neuron
+
+# Connection enable/disable options
+enabled_default         = True     # New connections start enabled
+enabled_mutate_rate     = 0.01     # Probability of toggling enabled state
+enabled_rate_to_true_add  = 0.0    # Extra probability to enable
+enabled_rate_to_false_add = 0.0    # Extra probability to disable
+
+# Connection weight options (like neural network weights)
+weight_init_mean        = 0.0      # Average starting weight
+weight_init_stdev       = 1.0      # Variation in starting weight
+weight_init_type        = gaussian # Random distribution
+weight_max_value        = 30       # Maximum weight magnitude
+weight_min_value        = -30      # Minimum weight magnitude
+weight_mutate_power     = 0.5      # How much to change when mutating
+weight_mutate_rate      = 0.8      # Probability of mutating weight
+weight_replace_rate     = 0.1      # Probability of completely replacing weight
+
+# Structural mutation control
+single_structural_mutation = false  # Allow multiple structural changes per genome
+structural_mutation_surer  = default # Fallback behavior
+
+[DefaultSpeciesSet]
+# How genetically similar genomes must be to belong to same species
+# Lower = more species (more diversity, slower convergence)
+# Higher = fewer species (less diversity, faster convergence)
+# 3.0 is a good starting point
+compatibility_threshold = 3.0
+
+[DefaultStagnation]
+# How to rank species for stagnation removal
+species_fitness_func = max  # Use best genome in species
+
+# Remove species that don't improve for this many generations
+max_stagnation       = 20
+
+# Protect the best N species from stagnation removal
+species_elitism      = 2
+
+[DefaultReproduction]
+# Always keep the best N genomes unchanged
+elitism            = 2
+
+# Only the top X% of each species can reproduce
+# 0.2 = top 20%
+survival_threshold = 0.2
+
+# Minimum members for a species to be maintained
+min_species_size   = 2

@@ -1,4 +1,4 @@
-from collections import Counter
+from collections import Counter, defaultdict
 import os
 import neat
 import numpy as np
@@ -40,7 +40,7 @@ def process_net_output(boards: list[np.ndarray], move_preferences: list[float],
         raise ValueError(
             "No valid moves. Are you trying to play when the game is over?")
     if interactive:
-        print(f"opponent places {roll} in slot {desired_move}")
+        print(f"Opponent places {roll} in slot {desired_move}")
     return process_move(boards, desired_move, turn_counter, opponent_index, roll)
 
 
@@ -113,10 +113,14 @@ def play_game(net_a: neat.nn.FeedForwardNetwork, net_b: neat.nn.FeedForwardNetwo
 
 def eval_genomes(genomes, config):
     # We're goint to run a round-robin tournament between all of our genomes
+    nets = {}
+    for id, genome in genomes:
+        nets[id] = neat.nn.FeedForwardNetwork.create(genome, config)
+
     for pairing in tqdm(combinations(genomes, 2), total=math.comb(len(genomes), 2)):
         [(id_a, genome_a), (id_b, genome_b)] = pairing
-        net_a = neat.nn.FeedForwardNetwork.create(genome_a, config)
-        net_b = neat.nn.FeedForwardNetwork.create(genome_b, config)
+        net_a = nets[id_a]
+        net_b = nets[id_b]
         score_a, score_b = play_game(net_a, net_b)
         if score_a > score_b:
             genome_a.fitness = (genome_a.fitness or 0) + 1
@@ -126,6 +130,30 @@ def eval_genomes(genomes, config):
             genome_b.fitness = (genome_b.fitness or 0) + 1
     for (id, genome) in genomes:
         genome.fitness = max(0.001, genome.fitness)
+
+
+def eval_genome_pool(nets, genome_pool):
+    match_scores = defaultdict(lambda: 0)
+    for pairing in genome_pool:
+        [(id_a, genome_a), (id_b, genome_b)] = pairing
+        net_a = nets[id_a]
+        net_b = nets[id_b]
+        score_a, score_b = play_game(net_a, net_b)
+        if score_a > score_b:
+            match_scores[id_a] += 1
+            match_scores[id_b] -= 1
+        else:
+            match_scores[id_b] += 1
+            match_scores[id_a] -= 1
+    return match_scores
+
+
+def multiprocess_eval_genomes(genomes, config):
+    pairings = combinations(genomes, 2)
+    fitnesses = {}
+    nets = {}
+    for id, genome in genomes:
+        nets[id] = neat.nn.FeedForwardNetwork.create(genome, config)
 
 
 def run(config_file):
@@ -141,7 +169,8 @@ def run(config_file):
     p.add_reporter(neat.StdOutReporter(True))
     stats = neat.StatisticsReporter()
     p.add_reporter(stats)
-    p.add_reporter(neat.Checkpointer(5, filename_prefix="knucklebones-"))
+    p.add_reporter(neat.Checkpointer(
+        1, filename_prefix="checkpoint-knucklebones-"))
 
     # Run for up to 300 generations.
     winner = p.run(eval_genomes, 300)
@@ -152,6 +181,7 @@ def run(config_file):
 
 def print_boards(board1, board2):
     print(board2.reshape(3, 3).T)
+    print("--------")
     print(board1.reshape(3, 3).T)
 
 
@@ -166,18 +196,19 @@ def play_game_interactive(net: neat.nn.FeedForwardNetwork):
             roll = np.random.randint(1, 7)
             move_preferences = net.activate(get_net_input(
                 boards[turn_counter], boards[opponent_index], roll))
-            print("opponent rolls", roll)
+            print("Opponent rolls", roll)
             boards = process_net_output(
                 boards, move_preferences, turn_counter, opponent_index, roll, interactive=True)
         else:
             roll = np.random.randint(1, 7)
             print("Your roll is", roll)
             print_boards(boards[turn_counter], boards[opponent_index])
-            move = pyip.inputNum("Enter move (1-9):")
+            move = pyip.inputNum("Enter move (1-9):") - 1
             boards = process_move(
                 boards, move, turn_counter, opponent_index, roll)
-
-        print("Scores:", get_scores(boards))
+        scores = get_scores(boards)
+        print(f"Scores: You {int(scores[1])} | Bot {int(scores[0])}")
+        print("\n")
         game_over = is_game_over(boards)
         turn_counter = opponent_index
         turns += 1
@@ -190,8 +221,24 @@ if __name__ == '__main__':
     # Determine path to configuration file. This path manipulation is
     # here so that the script will run successfully regardless of the
     # current working directory.
+    interactive = True
     local_dir = os.path.dirname(__file__)
     config_path = os.path.join(local_dir, 'knucklebones_config')
-    run(config_path)
-    # pop = neat.Checkpointer.restore_checkpoint("checkpoint-knucklebones-5")
-    # print([x.fitness for x in pop.population.values()])
+    if interactive:
+        pop = neat.Checkpointer.restore_checkpoint("checkpoint-knucklebones-8")
+        (gid, best_genome) = list(pop.population.items())[0]
+        print(gid, best_genome.fitness)
+        config = neat.Config(neat.DefaultGenome, neat.DefaultReproduction,
+                             neat.DefaultSpeciesSet, neat.DefaultStagnation,
+                             config_path)
+        net = neat.nn.FeedForwardNetwork.create(best_genome, config)
+        play_game_interactive(net)
+    else:
+        run(config_path)
+
+
+# TODO: The bots need a constant opponent to be evaluated against, that way
+# better bot = higher fitness consistently.
+# Ideas for opponents are random player, and greedy player.
+# Ideas for fitness score could be games won out of 50/100 whatever, or total
+# score diff or similar

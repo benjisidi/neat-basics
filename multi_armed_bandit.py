@@ -1,7 +1,3 @@
-"""
-2-input XOR example -- this is most likely the simplest possible example.
-"""
-
 import os
 from copy import copy
 import neat

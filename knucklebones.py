@@ -1,35 +1,18 @@
 from collections import Counter
 import os
-from copy import copy
 import neat
 import numpy as np
 from itertools import combinations
 from tqdm import tqdm
 import math
-
-# EL PLAN
-"""
-Each cell is represented by a 7-length vector meaning [EMPTY, 1, ..., 6]
-Gonna hold onto these separately and concat them when they get passed to nets
-So game state will be BOARD_A, BOARD_B
-And net A gets passed (*BOARD_A, *BOARD_B), while B gets passed (*BOARD_B, *BOARD_A)
-Board is col1, col2, col3 (front middle back doesn't actually matter)
-
-Functions:
-
-# These function on a whole board at once: plan is to keep game-state as ndarray and
-# convert to one-hot when passing to nets
-itoh: Integer to One-Hot
-process_net_output: Takes the (one-hot) output of the net and returns a sorted list of (integer) indices for where it would like to place the current die
-board2input: One-hots both boards and concats them
-n_populated(board)->number: counts how many dice are on a board so we know when to end the game
-score(board)->number: totals up the score of a board
-process_move(board1, board2, value, loc)->(board1, board2): process placement of value in loc on board1, update both boards as required
-
-"""
+import pyinputplus as pyip
 
 
 def get_net_input(board1: np.ndarray, board2: np.ndarray, roll: int) -> np.ndarray:
+    # We've got:
+    # - 9x7-length vectors for each board space, one-hot representing empty -> 6
+    # - Another of the above for opponent board
+    # - 1x6 for one-hot encoding of current roll
     output = np.zeros(132)
     for i, val in enumerate(board1):
         idx = i*7 + val
@@ -43,7 +26,7 @@ def get_net_input(board1: np.ndarray, board2: np.ndarray, roll: int) -> np.ndarr
 
 
 def process_net_output(boards: list[np.ndarray], move_preferences: list[float],
-                       turn_counter: int, opponent_index: int, roll: int) -> list[np.ndarray]:
+                       turn_counter: int, opponent_index: int, roll: int, interactive=False) -> list[np.ndarray]:
     # First, find the most preferred legal move by iterating through the preferences til a legal one is found
     player_board = boards[turn_counter]
     desired_move = -1
@@ -56,11 +39,19 @@ def process_net_output(boards: list[np.ndarray], move_preferences: list[float],
     if desired_move == -1:
         raise ValueError(
             "No valid moves. Are you trying to play when the game is over?")
-    # Next, place the roll in the empty space of the current player's board
-    player_board[desired_move] = roll
+    if interactive:
+        print(f"opponent places {roll} in slot {desired_move}")
+    return process_move(boards, desired_move, turn_counter, opponent_index, roll)
+
+
+def process_move(boards: list[np.ndarray], move: int,
+                 turn_counter: int, opponent_index: int, roll: int) -> list[np.ndarray]:
+    player_board = boards[turn_counter]
+   # Place the roll in the empty space of the current player's board
+    player_board[move] = roll
     # Last, blank any matching rolls from the opposing player's column
     opponent_board = boards[opponent_index]
-    column = desired_move // 3
+    column = move // 3
     column_indices = np.array([0, 1, 2]) + 3 * column
     for idx in column_indices:
         if opponent_board[idx] == roll:
@@ -123,19 +114,16 @@ def play_game(net_a: neat.nn.FeedForwardNetwork, net_b: neat.nn.FeedForwardNetwo
 def eval_genomes(genomes, config):
     # We're goint to run a round-robin tournament between all of our genomes
     for pairing in tqdm(combinations(genomes, 2), total=math.comb(len(genomes), 2)):
-        # for genome_id, genome in genomes:
         [(id_a, genome_a), (id_b, genome_b)] = pairing
         net_a = neat.nn.FeedForwardNetwork.create(genome_a, config)
         net_b = neat.nn.FeedForwardNetwork.create(genome_b, config)
         score_a, score_b = play_game(net_a, net_b)
         if score_a > score_b:
-            genome_a.fitness = 1 if genome_a.fitness is None else genome_a.fitness + 1
-            genome_b.fitness = -1 if genome_b.fitness is None else genome_b.fitness - 1
+            genome_a.fitness = (genome_a.fitness or 0) + 1
+            genome_b.fitness = (genome_b.fitness or 0) - 1
         else:
-            genome_a.fitness = -1 if genome_a.fitness is None else genome_a.fitness - 1
-            genome_b.fitness = 1 if genome_b.fitness is None else genome_b.fitness + 1
-    # TODO: For now, since we're using total score, we don't need to bother with
-    # this as fitness can't be negative.
+            genome_a.fitness = (genome_a.fitness or 0) - 1
+            genome_b.fitness = (genome_b.fitness or 0) + 1
     for (id, genome) in genomes:
         genome.fitness = max(0.001, genome.fitness)
 
@@ -162,6 +150,42 @@ def run(config_file):
     print(f'\nBest genome:\n{winner!s}')
 
 
+def print_boards(board1, board2):
+    print(board2.reshape(3, 3).T)
+    print(board1.reshape(3, 3).T)
+
+
+def play_game_interactive(net: neat.nn.FeedForwardNetwork):
+    boards = [get_blank_board(), get_blank_board()]
+    turn_counter = np.random.randint(0, 2)
+    game_over = False
+    turns = 0
+    while not game_over:
+        opponent_index = (turn_counter + 1) % 2
+        if turn_counter == 0:
+            roll = np.random.randint(1, 7)
+            move_preferences = net.activate(get_net_input(
+                boards[turn_counter], boards[opponent_index], roll))
+            print("opponent rolls", roll)
+            boards = process_net_output(
+                boards, move_preferences, turn_counter, opponent_index, roll, interactive=True)
+        else:
+            roll = np.random.randint(1, 7)
+            print("Your roll is", roll)
+            print_boards(boards[turn_counter], boards[opponent_index])
+            move = pyip.inputNum("Enter move (1-9):")
+            boards = process_move(
+                boards, move, turn_counter, opponent_index, roll)
+
+        print("Scores:", get_scores(boards))
+        game_over = is_game_over(boards)
+        turn_counter = opponent_index
+        turns += 1
+
+    scores = get_scores(boards)
+    return scores
+
+
 if __name__ == '__main__':
     # Determine path to configuration file. This path manipulation is
     # here so that the script will run successfully regardless of the
@@ -169,3 +193,5 @@ if __name__ == '__main__':
     local_dir = os.path.dirname(__file__)
     config_path = os.path.join(local_dir, 'knucklebones_config')
     run(config_path)
+    # pop = neat.Checkpointer.restore_checkpoint("checkpoint-knucklebones-5")
+    # print([x.fitness for x in pop.population.values()])

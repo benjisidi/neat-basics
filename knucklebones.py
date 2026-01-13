@@ -100,7 +100,7 @@ def get_random_move(boards: list[np.ndarray], turn_counter: int) -> int:
     return np.random.choice(np.argwhere(board == 0).flatten())
 
 
-def net_vs_func(net: neat.nn.FeedForwardNetwork, func: abc.Callable[[list[np.ndarray], int], int]) -> int:
+def net_vs_func(net: neat.nn.FeedForwardNetwork, func: abc.Callable[[list[np.ndarray], int], int]) -> list[int]:
     """
     Net plays an arbitrary hardcoded function for one game.
     If net wins, returns 1
@@ -131,7 +131,7 @@ def net_vs_func(net: neat.nn.FeedForwardNetwork, func: abc.Callable[[list[np.nda
         turn_counter = opponent_index
         turns += 1
     scores = get_scores(boards)
-    return int(scores[0] > scores[1])
+    return scores
 
 
 def net_vs_net(net_a: neat.nn.FeedForwardNetwork, net_b: neat.nn.FeedForwardNetwork):
@@ -180,12 +180,12 @@ def eval_genomes(genomes, config):
 
 def eval_genome_vs_func(genome, config, func: abc.Callable[[list[np.ndarray], int], int]):
     n_games = 500
-    wins = 0
+    total_score_diff = 0
     net = neat.nn.FeedForwardNetwork.create(genome, config)
     for _ in range(n_games):
-        outcome = net_vs_func(net, func)
-        wins += outcome
-    return wins
+        scores = net_vs_func(net, func)
+        total_score_diff += scores[0] - scores[1]
+    return max(total_score_diff/n_games, 0.001)
 
 
 def eval_genome_vs_random(genome, config):

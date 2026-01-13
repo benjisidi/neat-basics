@@ -30,12 +30,18 @@ def process_net_output(boards: list[np.ndarray], move_preferences: list[float],
                        turn_counter: int, opponent_index: int, roll: int, interactive=False) -> list[np.ndarray]:
     # First, find the most preferred legal move by iterating through the preferences til a legal one is found
     player_board = boards[turn_counter]
+    player_cols = np.array_split(player_board, 3)
     desired_move = -1
     # Argsort is always descending, so we'll reverse the arry to get the most preferred moves first
     move_preference_indices = np.argsort(move_preferences)[::-1]
-    for move in move_preference_indices:
-        if player_board[move] == 0:
-            desired_move = move
+    # We're going to check each col in order of preference, finding the first one with an empty space
+    for col in move_preference_indices:
+        if np.any(player_cols[col] == 0):
+            # This column definitely has a space, so we'll play in the first one we find
+            column_indices = np.array([0, 1, 2]) + 3 * col
+            for i in column_indices:
+                if player_board[i] == 0:
+                    desired_move = i
             break
     if desired_move == -1:
         raise ValueError(
@@ -173,7 +179,7 @@ def eval_genomes(genomes, config):
 
 
 def eval_genome_vs_func(genome, config, func: abc.Callable[[list[np.ndarray], int], int]):
-    n_games = 50
+    n_games = 500
     wins = 0
     net = neat.nn.FeedForwardNetwork.create(genome, config)
     for _ in range(n_games):

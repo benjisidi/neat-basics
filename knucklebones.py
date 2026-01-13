@@ -1,4 +1,4 @@
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, abc
 import os
 import neat
 import numpy as np
@@ -6,6 +6,7 @@ from itertools import combinations
 from tqdm import tqdm
 import math
 import pyinputplus as pyip
+import multiprocessing
 
 
 def get_net_input(board1: np.ndarray, board2: np.ndarray, roll: int) -> np.ndarray:
@@ -88,7 +89,46 @@ def get_scores(boards: list[np.ndarray]) -> list[int]:
     return scores
 
 
-def play_game(net_a: neat.nn.FeedForwardNetwork, net_b: neat.nn.FeedForwardNetwork):
+def get_random_move(boards: list[np.ndarray], turn_counter: int) -> int:
+    board = boards[turn_counter]
+    return np.random.choice(np.argwhere(board == 0).flatten())
+
+
+def net_vs_func(net: neat.nn.FeedForwardNetwork, func: abc.Callable[[list[np.ndarray], int], int]) -> int:
+    """
+    Net plays an arbitrary hardcoded function for one game.
+    If net wins, returns 1
+    Else returns 0
+    """
+    turn_counter = np.random.randint(0, 2)
+    game_over = False
+    turns = 0
+    max_turns = 200
+    boards = [get_blank_board(), get_blank_board()]
+    while not game_over and turns < max_turns:
+        roll = np.random.randint(1, 7)
+        # We'll hardcode the net to be player 0 and func to be player 1
+        # First play is randomized so this is arbitrary
+        if turn_counter == 0:
+            opponent_index = 1
+            move_preferences = net.activate(get_net_input(
+                boards[turn_counter], boards[opponent_index], roll))
+            boards = process_net_output(
+                boards, move_preferences, turn_counter, opponent_index, roll)
+        else:
+            opponent_index = 0
+            move = func(boards, turn_counter)
+            boards = process_move(
+                boards, move, turn_counter, opponent_index, roll)
+
+        game_over = is_game_over(boards)
+        turn_counter = opponent_index
+        turns += 1
+    scores = get_scores(boards)
+    return int(scores[0] > scores[1])
+
+
+def net_vs_net(net_a: neat.nn.FeedForwardNetwork, net_b: neat.nn.FeedForwardNetwork):
     nets = [net_a, net_b]
     boards = [get_blank_board(), get_blank_board()]
     turn_counter = np.random.randint(0, 2)
@@ -121,7 +161,7 @@ def eval_genomes(genomes, config):
         [(id_a, genome_a), (id_b, genome_b)] = pairing
         net_a = nets[id_a]
         net_b = nets[id_b]
-        score_a, score_b = play_game(net_a, net_b)
+        score_a, score_b = net_vs_net(net_a, net_b)
         if score_a > score_b:
             genome_a.fitness = (genome_a.fitness or 0) + 1
             genome_b.fitness = (genome_b.fitness or 0) - 1
@@ -132,28 +172,18 @@ def eval_genomes(genomes, config):
         genome.fitness = max(0.001, genome.fitness)
 
 
-def eval_genome_pool(nets, genome_pool):
-    match_scores = defaultdict(lambda: 0)
-    for pairing in genome_pool:
-        [(id_a, genome_a), (id_b, genome_b)] = pairing
-        net_a = nets[id_a]
-        net_b = nets[id_b]
-        score_a, score_b = play_game(net_a, net_b)
-        if score_a > score_b:
-            match_scores[id_a] += 1
-            match_scores[id_b] -= 1
-        else:
-            match_scores[id_b] += 1
-            match_scores[id_a] -= 1
-    return match_scores
+def eval_genome_vs_func(genome, config, func: abc.Callable[[list[np.ndarray], int], int]):
+    n_games = 50
+    wins = 0
+    net = neat.nn.FeedForwardNetwork.create(genome, config)
+    for _ in range(n_games):
+        outcome = net_vs_func(net, func)
+        wins += outcome
+    return wins
 
 
-def multiprocess_eval_genomes(genomes, config):
-    pairings = combinations(genomes, 2)
-    fitnesses = {}
-    nets = {}
-    for id, genome in genomes:
-        nets[id] = neat.nn.FeedForwardNetwork.create(genome, config)
+def eval_genome_vs_random(genome, config):
+    return eval_genome_vs_func(genome, config, get_random_move)
 
 
 def run(config_file):
@@ -170,10 +200,11 @@ def run(config_file):
     stats = neat.StatisticsReporter()
     p.add_reporter(stats)
     p.add_reporter(neat.Checkpointer(
-        1, filename_prefix="checkpoint-knucklebones-"))
+        5, filename_prefix="checkpoint-knucklebones-"))
 
     # Run for up to 300 generations.
-    winner = p.run(eval_genomes, 300)
+    with neat.ParallelEvaluator(multiprocessing.cpu_count(), eval_genome_vs_random) as evaluator:
+        winner = p.run(evaluator.evaluate, 300)
 
     # Display the winning genome.
     print(f'\nBest genome:\n{winner!s}')
@@ -221,7 +252,7 @@ if __name__ == '__main__':
     # Determine path to configuration file. This path manipulation is
     # here so that the script will run successfully regardless of the
     # current working directory.
-    interactive = True
+    interactive = False
     local_dir = os.path.dirname(__file__)
     config_path = os.path.join(local_dir, 'knucklebones_config')
     if interactive:

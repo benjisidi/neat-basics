@@ -1,6 +1,6 @@
 from collections import Counter, abc
-import multiprocessing
 import os
+from tabnanny import check
 import neat
 import numpy as np
 from tqdm import tqdm
@@ -239,7 +239,7 @@ def run(config_file, checkpoint=None):
     if checkpoint is None:
         p = neat.Population(config)
     else:
-        p = neat.Checkpointer.restore_checkpoint(checkpoint)
+        p = load_from_checkpoint(checkpoint)
 
     # Add a stdout reporter to show progress in the terminal.
     p.add_reporter(neat.StdOutReporter(True))
@@ -297,17 +297,26 @@ def play_game_interactive(net: neat.nn.FeedForwardNetwork):
     return scores
 
 
+def load_from_checkpoint(checkpoint):
+    global genome_cache
+    pop = neat.Checkpointer.restore_checkpoint(
+        checkpoint)
+    (gid, best_genome) = list(pop.population.items())[0]
+    genome_cache["prev_best"] = best_genome
+    return pop
+
+
 if __name__ == '__main__':
     # Determine path to configuration file. This path manipulation is
     # here so that the script will run successfully regardless of the
     # current working directory.
-    interactive = True
+    checkpoint = "checkpoint-knucklebones-291"
+    interactive = False
     local_dir = os.path.dirname(__file__)
     config_path = os.path.join(local_dir, 'knucklebones_config')
     if interactive:
-        pop = neat.Checkpointer.restore_checkpoint("checkpoint-knucklebones-291")
-        (gid, best_genome) = list(pop.population.items())[0]
-        print(gid, best_genome.fitness)
+        pop = load_from_checkpoint(checkpoint)
+        best_genome = genome_cache["prev_best"]
         config = neat.Config(neat.DefaultGenome, neat.DefaultReproduction,
                              neat.DefaultSpeciesSet, neat.DefaultStagnation,
                              config_path)

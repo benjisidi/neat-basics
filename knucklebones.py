@@ -226,17 +226,20 @@ def eval_genome_vs_random(genome, config):
     return eval_genome_vs_func(genome, config, get_random_move)
 
 
-def run(config_file):
+def run(config_file, checkpoint=None):
     global genome_cache
     # Initialise genome cache
     genome_cache = {"prev_best": None}
-    # Load configuration.
+    # Load configuration
     config = neat.Config(neat.DefaultGenome, neat.DefaultReproduction,
                          neat.DefaultSpeciesSet, neat.DefaultStagnation,
                          config_file)
 
     # Create the population, which is the top-level object for a NEAT run.
-    p = neat.Population(config)
+    if checkpoint is None:
+        p = neat.Population(config)
+    else:
+        p = neat.Checkpointer.restore_checkpoint(checkpoint)
 
     # Add a stdout reporter to show progress in the terminal.
     p.add_reporter(neat.StdOutReporter(True))
@@ -244,11 +247,13 @@ def run(config_file):
     p.add_reporter(stats)
     p.add_reporter(neat.Checkpointer(
         5, filename_prefix="checkpoint-knucklebones-"))
+    # TODO: Need to checkpoint the best genome as well as the population, then load it here!
+    # Add checkpoint_freq and gen_number to genome_cache, then save in eval_genomes
 
     # Run for up to 300 generations.
     # with neat.ParallelEvaluator(multiprocessing.cpu_count(), eval_genome_vs_random) as evaluator:
     #     winner = p.run(evaluator.evaluate, 300)
-    winner = p.run(eval_genomes, 300)
+    winner = p.run(eval_genomes, 600)
 
     # Display the winning genome.
     print(f'\nBest genome:\n{winner!s}')
@@ -296,11 +301,11 @@ if __name__ == '__main__':
     # Determine path to configuration file. This path manipulation is
     # here so that the script will run successfully regardless of the
     # current working directory.
-    interactive = False
+    interactive = True
     local_dir = os.path.dirname(__file__)
     config_path = os.path.join(local_dir, 'knucklebones_config')
     if interactive:
-        pop = neat.Checkpointer.restore_checkpoint("checkpoint-knucklebones-8")
+        pop = neat.Checkpointer.restore_checkpoint("checkpoint-knucklebones-291")
         (gid, best_genome) = list(pop.population.items())[0]
         print(gid, best_genome.fitness)
         config = neat.Config(neat.DefaultGenome, neat.DefaultReproduction,
@@ -309,7 +314,7 @@ if __name__ == '__main__':
         net = neat.nn.FeedForwardNetwork.create(best_genome, config)
         play_game_interactive(net)
     else:
-        run(config_path)
+        run(config_path, "checkpoint-knucklebones-291")
 
 
 # TODO: The bots need a constant opponent to be evaluated against, that way

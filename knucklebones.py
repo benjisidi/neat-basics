@@ -7,7 +7,7 @@ from tqdm import tqdm
 import pyinputplus as pyip
 from multiprocessing import cpu_count, Pool
 
-global genome_cache
+genome_cache = {}
 
 
 def get_net_input(board1: np.ndarray, board2: np.ndarray, roll: int) -> np.ndarray:
@@ -25,6 +25,20 @@ def get_net_input(board1: np.ndarray, board2: np.ndarray, roll: int) -> np.ndarr
     roll_idx = 126 + roll - 1
     output[roll_idx] = 1
     return output
+
+
+def col_to_move(board, col):
+    board_cols = np.array_split(board, 3)
+    desired_move = -1
+    if np.any(board_cols[col] == 0):
+        column_indices = np.array([0, 1, 2]) + 3 * col
+        for i in column_indices:
+            if board[i] == 0:
+                desired_move = i
+    if desired_move == -1:
+        raise ValueError(
+            "No valid moves.")
+    return desired_move
 
 
 def process_net_output(boards: list[np.ndarray], move_preferences: list[float],
@@ -283,7 +297,8 @@ def play_game_interactive(net: neat.nn.FeedForwardNetwork):
             roll = np.random.randint(1, 7)
             print("Your roll is", roll)
             print_boards(boards[turn_counter], boards[opponent_index])
-            move = pyip.inputNum("Enter move (1-9):") - 1
+            col = pyip.inputNum("Enter column (1-3):") - 1
+            move = col_to_move(boards[turn_counter], col)
             boards = process_move(
                 boards, move, turn_counter, opponent_index, roll)
         scores = get_scores(boards)
@@ -310,8 +325,8 @@ if __name__ == '__main__':
     # Determine path to configuration file. This path manipulation is
     # here so that the script will run successfully regardless of the
     # current working directory.
-    checkpoint = "checkpoint-knucklebones-291"
-    interactive = False
+    checkpoint = "checkpoint-knucklebones-5"
+    interactive = True
     local_dir = os.path.dirname(__file__)
     config_path = os.path.join(local_dir, 'knucklebones_config')
     if interactive:
@@ -323,7 +338,7 @@ if __name__ == '__main__':
         net = neat.nn.FeedForwardNetwork.create(best_genome, config)
         play_game_interactive(net)
     else:
-        run(config_path, "checkpoint-knucklebones-291")
+        run(config_path, checkpoint)
 
 
 # TODO: The bots need a constant opponent to be evaluated against, that way

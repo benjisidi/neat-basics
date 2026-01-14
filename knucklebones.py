@@ -5,6 +5,7 @@ import neat
 import numpy as np
 from tqdm import tqdm
 import pyinputplus as pyip
+from fire import Fire
 from multiprocessing import cpu_count, Pool
 
 genome_cache = {}
@@ -47,6 +48,7 @@ def process_net_output(boards: list[np.ndarray], move_preferences: list[float],
     player_board = boards[turn_counter]
     player_cols = np.array_split(player_board, 3)
     desired_move = -1
+    desired_col = -1
     # Argsort is always descending, so we'll reverse the arry to get the most preferred moves first
     move_preference_indices = np.argsort(move_preferences)[::-1]
     # We're going to check each col in order of preference, finding the first one with an empty space
@@ -57,12 +59,13 @@ def process_net_output(boards: list[np.ndarray], move_preferences: list[float],
             for i in column_indices:
                 if player_board[i] == 0:
                     desired_move = i
+                    desired_col = col
             break
     if desired_move == -1:
         raise ValueError(
             "No valid moves. Are you trying to play when the game is over?")
     if interactive:
-        print(f"Opponent places {roll} in slot {desired_move}")
+        print(f"Opponent places {roll} in column {desired_col + 1}")
     return process_move(boards, desired_move, turn_counter, opponent_index, roll)
 
 
@@ -118,8 +121,7 @@ def get_random_move(boards: list[np.ndarray], turn_counter: int) -> int:
 def net_vs_func(net: neat.nn.FeedForwardNetwork, func: abc.Callable[[list[np.ndarray], int], int]) -> list[int]:
     """
     Net plays an arbitrary hardcoded function for one game.
-    If net wins, returns 1
-    Else returns 0
+    Returns scores of net and function
     """
     turn_counter = np.random.randint(0, 2)
     game_over = False
@@ -249,6 +251,7 @@ def run(config_file, checkpoint=None):
                          neat.DefaultSpeciesSet, neat.DefaultStagnation,
                          config_file)
 
+    print(checkpoint)
     # Create the population, which is the top-level object for a NEAT run.
     if checkpoint is None:
         p = neat.Population(config)
@@ -321,16 +324,15 @@ def load_from_checkpoint(checkpoint):
     return pop
 
 
-if __name__ == '__main__':
-    # Determine path to configuration file. This path manipulation is
-    # here so that the script will run successfully regardless of the
-    # current working directory.
-    checkpoint = "checkpoint-knucklebones-5"
-    interactive = True
+def main(interactive=False, checkpoint=None):
+    if interactive and not checkpoint:
+        print("If you want to play, you must specify a checkpoint")
+        exit()
     local_dir = os.path.dirname(__file__)
     config_path = os.path.join(local_dir, 'knucklebones_config')
+    checkpoint_name = f"checkpoint-knucklebones-{checkpoint}" if checkpoint else None
     if interactive:
-        pop = load_from_checkpoint(checkpoint)
+        pop = load_from_checkpoint(checkpoint_name)
         best_genome = genome_cache["prev_best"]
         config = neat.Config(neat.DefaultGenome, neat.DefaultReproduction,
                              neat.DefaultSpeciesSet, neat.DefaultStagnation,
@@ -338,11 +340,8 @@ if __name__ == '__main__':
         net = neat.nn.FeedForwardNetwork.create(best_genome, config)
         play_game_interactive(net)
     else:
-        run(config_path, checkpoint)
+        run(config_path, checkpoint_name)
 
 
-# TODO: The bots need a constant opponent to be evaluated against, that way
-# better bot = higher fitness consistently.
-# Ideas for opponents are random player, and greedy player.
-# Ideas for fitness score could be games won out of 50/100 whatever, or total
-# score diff or similar
+if __name__ == '__main__':
+    Fire(main)

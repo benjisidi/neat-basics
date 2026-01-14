@@ -278,39 +278,47 @@ def run(config_file, checkpoint=None):
 
 def print_boards(board1, board2):
     print(board2.reshape(3, 3).T)
-    print("--------")
+    print("---------")
     print(board1.reshape(3, 3).T)
 
 
 def play_game_interactive(net: neat.nn.FeedForwardNetwork):
-    boards = [get_blank_board(), get_blank_board()]
-    turn_counter = np.random.randint(0, 2)
-    game_over = False
-    turns = 0
-    while not game_over:
-        opponent_index = (turn_counter + 1) % 2
-        if turn_counter == 0:
-            roll = np.random.randint(1, 7)
-            move_preferences = net.activate(get_net_input(
-                boards[turn_counter], boards[opponent_index], roll))
-            print("Opponent rolls", roll)
-            boards = process_net_output(
-                boards, move_preferences, turn_counter, opponent_index, roll, interactive=True)
-        else:
-            roll = np.random.randint(1, 7)
-            print("Your roll is", roll)
-            print_boards(boards[turn_counter], boards[opponent_index])
-            col = pyip.inputNum("Enter column (1-3):") - 1
-            move = col_to_move(boards[turn_counter], col)
-            boards = process_move(
-                boards, move, turn_counter, opponent_index, roll)
-        scores = get_scores(boards)
-        print(f"Scores: You {int(scores[1])} | Bot {int(scores[0])}")
-        print("\n")
-        game_over = is_game_over(boards)
-        turn_counter = opponent_index
-        turns += 1
-
+    done = False
+    game_scores = [0, 0]
+    while not done:
+        turn_counter = np.random.randint(0, 2)
+        boards = [get_blank_board(), get_blank_board()]
+        game_over = False
+        turns = 0
+        while not game_over:
+            opponent_index = (turn_counter + 1) % 2
+            if turn_counter == 0:
+                roll = np.random.randint(1, 7)
+                move_preferences = net.activate(get_net_input(
+                    boards[turn_counter], boards[opponent_index], roll))
+                print("Opponent rolls", roll)
+                boards = process_net_output(
+                    boards, move_preferences, turn_counter, opponent_index, roll, interactive=True)
+            else:
+                roll = np.random.randint(1, 7)
+                print("Your roll is", roll)
+                print_boards(boards[turn_counter], boards[opponent_index])
+                col = pyip.inputNum("Enter column (1-3): ") - 1
+                move = col_to_move(boards[turn_counter], col)
+                boards = process_move(
+                    boards, move, turn_counter, opponent_index, roll)
+            scores = get_scores(boards)
+            print(f"Scores: You {int(scores[1])} | Bot {int(scores[0])}")
+            print("\n")
+            game_over = is_game_over(boards)
+            turn_counter = opponent_index
+            turns += 1
+        print("=========")
+        print(f"Game over. Final scores: You {int(scores[1])} | Bot {int(scores[0])}")
+        winner_idx = int(scores[0] < scores[1])
+        game_scores[winner_idx] += 1
+        print(f"Match scores: You {int(game_scores[1])} | Bot {int(game_scores[0])}")
+        done = pyip.inputYesNo("Play again (y/n)? ") == "no"
     scores = get_scores(boards)
     return scores
 
@@ -345,3 +353,7 @@ def main(interactive=False, checkpoint=None):
 
 if __name__ == '__main__':
     Fire(main)
+
+# TODO: Write a func that will vs the best from two checkpoints to see if we're
+# actually making any progress. atm anecdotally it feels like 191 is stronger
+# than latest.

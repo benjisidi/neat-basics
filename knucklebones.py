@@ -1,6 +1,6 @@
 from collections import Counter, abc
 import os
-from tabnanny import check
+from typing import Dict
 import neat
 import numpy as np
 from tqdm import tqdm
@@ -202,15 +202,14 @@ def eval_genomes(genomes, config):
     prev_best = genome_cache["prev_best"]
 
     # If this is the first generation, we're just going to train on the random bot
-    # Otherwise, we'll do a mix of the two
-    n_prev = 0 if prev_best is None else 350
-    n_random = 500 if prev_best is None else 150
+    # Otherwise, we'll just play the previous best
+    n_prev = 0 if prev_best is None else 2000
+    n_random = 2000 if prev_best is None else 0
     prev_net = None if prev_best is None else neat.nn.FeedForwardNetwork.create(
         prev_best, config)
 
     # Now, each genome plays the requisite number of games against each opponent
     # Their fitness is their mean score diff across all games
-    # TODO: Multiprocess this!
     args_list = [(id, nets[id], prev_net, n_prev, n_random)
                  for (id, _) in genomes]
 
@@ -227,9 +226,16 @@ def eval_genomes(genomes, config):
             best_genome = genome
     genome_cache["prev_best"] = best_genome
 
+    # type: ignore
+    generation = 1 if "generation" not in genome_cache else genome_cache["generation"] + 1
+    genome_cache["generation"] = generation
+    if generation % 10 == 0:
+        result_vs_random = eval_genome_vs_func(
+            best_genome, config, get_random_move, 2000)
+        print(f"Score diff after 2000 games vs random bot: {result_vs_random}")
 
-def eval_genome_vs_func(genome, config, func: abc.Callable[[list[np.ndarray], int], int]):
-    n_games = 500
+
+def eval_genome_vs_func(genome, config, func: abc.Callable[[list[np.ndarray], int], int], n_games=500):
     total_score_diff = 0
     net = neat.nn.FeedForwardNetwork.create(genome, config)
     for _ in range(n_games):
@@ -251,7 +257,6 @@ def run(config_file, checkpoint=None):
                          neat.DefaultSpeciesSet, neat.DefaultStagnation,
                          config_file)
 
-    print(checkpoint)
     # Create the population, which is the top-level object for a NEAT run.
     if checkpoint is None:
         p = neat.Population(config)
@@ -313,14 +318,16 @@ def play_game_interactive(net: neat.nn.FeedForwardNetwork):
             game_over = is_game_over(boards)
             turn_counter = opponent_index
             turns += 1
+        scores = get_scores(boards)
         print("=========")
-        print(f"Game over. Final scores: You {int(scores[1])} | Bot {int(scores[0])}")
+        print(
+            f"Game over. Final scores: You {int(scores[1])} | Bot {int(scores[0])}")
         winner_idx = int(scores[0] < scores[1])
         game_scores[winner_idx] += 1
-        print(f"Match scores: You {int(game_scores[1])} | Bot {int(game_scores[0])}")
+        print(
+            f"Match scores: You {int(game_scores[1])} | Bot {int(game_scores[0])}")
         done = pyip.inputYesNo("Play again (y/n)? ") == "no"
-    scores = get_scores(boards)
-    return scores
+    return
 
 
 def load_from_checkpoint(checkpoint):

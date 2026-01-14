@@ -1,12 +1,13 @@
-from collections import Counter, defaultdict, abc
+from collections import Counter, abc
+import multiprocessing
 import os
 import neat
 import numpy as np
-from itertools import combinations
 from tqdm import tqdm
-import math
 import pyinputplus as pyip
-import multiprocessing
+from multiprocessing import cpu_count, Pool
+
+global genome_cache
 
 
 def get_net_input(board1: np.ndarray, board2: np.ndarray, roll: int) -> np.ndarray:
@@ -157,25 +158,58 @@ def net_vs_net(net_a: neat.nn.FeedForwardNetwork, net_b: neat.nn.FeedForwardNetw
     return scores
 
 
+def eval_genome_vs_pop(args):
+    id, genome_net, prev_net, n_prev, n_random = args
+    total_score = [0, 0]
+    if prev_net is not None:
+        for _ in range(n_prev):
+            genome_score, opp_score = net_vs_net(genome_net, prev_net)
+            total_score[0] += genome_score
+            total_score[1] += opp_score
+    for _ in range(n_random):
+        genome_score, opp_score = net_vs_func(genome_net, get_random_move)
+        total_score[0] += genome_score
+        total_score[1] += opp_score
+    fitness = max(
+        (total_score[0] - total_score[1])/(n_prev + n_random), 0.001)
+    return id, fitness
+
+
 def eval_genomes(genomes, config):
-    # We're goint to run a round-robin tournament between all of our genomes
+    # Initialise the nets for each genome of this generation
     nets = {}
     for id, genome in genomes:
         nets[id] = neat.nn.FeedForwardNetwork.create(genome, config)
 
-    for pairing in tqdm(combinations(genomes, 2), total=math.comb(len(genomes), 2)):
-        [(id_a, genome_a), (id_b, genome_b)] = pairing
-        net_a = nets[id_a]
-        net_b = nets[id_b]
-        score_a, score_b = net_vs_net(net_a, net_b)
-        if score_a > score_b:
-            genome_a.fitness = (genome_a.fitness or 0) + 1
-            genome_b.fitness = (genome_b.fitness or 0) - 1
-        else:
-            genome_a.fitness = (genome_a.fitness or 0) - 1
-            genome_b.fitness = (genome_b.fitness or 0) + 1
+    # Get the best genome from the previous generation as a training opponent
+    global genome_cache
+    prev_best = genome_cache["prev_best"]
+
+    # If this is the first generation, we're just going to train on the random bot
+    # Otherwise, we'll do a mix of the two
+    n_prev = 0 if prev_best is None else 350
+    n_random = 500 if prev_best is None else 150
+    prev_net = None if prev_best is None else neat.nn.FeedForwardNetwork.create(
+        prev_best, config)
+
+    # Now, each genome plays the requisite number of games against each opponent
+    # Their fitness is their mean score diff across all games
+    # TODO: Multiprocess this!
+    args_list = [(id, nets[id], prev_net, n_prev, n_random)
+                 for (id, _) in genomes]
+
+    with Pool(processes=cpu_count()) as pool:
+        results = list(
+            tqdm(pool.imap(eval_genome_vs_pop, args_list), total=len(genomes)))
+
+    fitness_dict = dict(results)
+
+    best_genome = None
     for (id, genome) in genomes:
-        genome.fitness = max(0.001, genome.fitness)
+        genome.fitness = fitness_dict[id]
+        if best_genome is None or best_genome.fitness < genome.fitness:
+            best_genome = genome
+    genome_cache["prev_best"] = best_genome
 
 
 def eval_genome_vs_func(genome, config, func: abc.Callable[[list[np.ndarray], int], int]):
@@ -193,6 +227,9 @@ def eval_genome_vs_random(genome, config):
 
 
 def run(config_file):
+    global genome_cache
+    # Initialise genome cache
+    genome_cache = {"prev_best": None}
     # Load configuration.
     config = neat.Config(neat.DefaultGenome, neat.DefaultReproduction,
                          neat.DefaultSpeciesSet, neat.DefaultStagnation,
@@ -209,8 +246,9 @@ def run(config_file):
         5, filename_prefix="checkpoint-knucklebones-"))
 
     # Run for up to 300 generations.
-    with neat.ParallelEvaluator(multiprocessing.cpu_count(), eval_genome_vs_random) as evaluator:
-        winner = p.run(evaluator.evaluate, 300)
+    # with neat.ParallelEvaluator(multiprocessing.cpu_count(), eval_genome_vs_random) as evaluator:
+    #     winner = p.run(evaluator.evaluate, 300)
+    winner = p.run(eval_genomes, 300)
 
     # Display the winning genome.
     print(f'\nBest genome:\n{winner!s}')
